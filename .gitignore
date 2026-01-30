@@ -4,8 +4,8 @@ node_modules/
 # Build output
 dist/
 
-# Debug/replay data
-debug/
+# Debug/replay data (saved sessions)
+/debug/
 
 # IDE
 .vscode/
