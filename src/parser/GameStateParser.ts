@@ -30,8 +30,12 @@ export interface GameState {
     timestamp: number;
 }
 
-/** Region definitions for 1024x768 resolution */
-const REGIONS = {
+/** Base resolution for region definitions */
+const BASE_WIDTH = 1024;
+const BASE_HEIGHT = 768;
+
+/** Region definitions for 1024x768 resolution (will be scaled for other resolutions) */
+const BASE_REGIONS = {
     // Stage indicator (top-center)
     stage: { leftTop: { x: 474, y: 5 }, rightBottom: { x: 550, y: 25 } },
 
@@ -64,8 +68,46 @@ const REGIONS = {
     ],
 };
 
+/** Scale a region from base resolution to target resolution */
+function scaleRegion(
+    region: SimpleRegion,
+    targetWidth: number,
+    targetHeight: number
+): SimpleRegion {
+    const scaleX = targetWidth / BASE_WIDTH;
+    const scaleY = targetHeight / BASE_HEIGHT;
+    return {
+        leftTop: {
+            x: Math.round(region.leftTop.x * scaleX),
+            y: Math.round(region.leftTop.y * scaleY),
+        },
+        rightBottom: {
+            x: Math.round(region.rightBottom.x * scaleX),
+            y: Math.round(region.rightBottom.y * scaleY),
+        },
+    };
+}
+
 export class GameStateParser {
     private ocrWorker: Worker | null = null;
+    private windowWidth: number = BASE_WIDTH;
+    private windowHeight: number = BASE_HEIGHT;
+
+    /**
+     * Set the game window dimensions for region scaling
+     */
+    setWindowSize(width: number, height: number): void {
+        this.windowWidth = width;
+        this.windowHeight = height;
+        console.log(`[GameStateParser] Window size set to ${width}x${height}`);
+    }
+
+    /**
+     * Get a scaled region based on current window size
+     */
+    private getScaledRegion(region: SimpleRegion): SimpleRegion {
+        return scaleRegion(region, this.windowWidth, this.windowHeight);
+    }
 
     async init(): Promise<void> {
         console.log('[GameStateParser] Initializing OCR worker...');
@@ -136,23 +178,23 @@ export class GameStateParser {
 
         try {
             // Parse stage from buffer
-            gameState.stage = await this.parseRegionFromBuffer(screenshotBuffer, REGIONS.stage, screenCapture);
+            gameState.stage = await this.parseRegionFromBuffer(screenshotBuffer, this.getScaledRegion(BASE_REGIONS.stage), screenCapture);
 
             // Parse gold from buffer
-            const goldText = await this.parseRegionFromBuffer(screenshotBuffer, REGIONS.gold, screenCapture);
+            const goldText = await this.parseRegionFromBuffer(screenshotBuffer, this.getScaledRegion(BASE_REGIONS.gold), screenCapture);
             const goldMatch = goldText?.match(/\d+/);
             gameState.shop.gold = goldMatch ? parseInt(goldMatch[0], 10) : null;
 
             // Parse level from buffer
-            const levelText = await this.parseRegionFromBuffer(screenshotBuffer, REGIONS.level, screenCapture);
+            const levelText = await this.parseRegionFromBuffer(screenshotBuffer, this.getScaledRegion(BASE_REGIONS.level), screenCapture);
             const levelMatch = levelText?.match(/(\d+)/);
             const xpMatch = levelText?.match(/(\d+)\/(\d+)/);
             gameState.shop.level = levelMatch ? parseInt(levelMatch[1], 10) : null;
             gameState.shop.xp = xpMatch ? `${xpMatch[1]}/${xpMatch[2]}` : null;
 
             // Parse shop units from buffer
-            for (let i = 0; i < REGIONS.shopSlots.length; i++) {
-                const text = await this.parseRegionFromBuffer(screenshotBuffer, REGIONS.shopSlots[i], screenCapture);
+            for (let i = 0; i < BASE_REGIONS.shopSlots.length; i++) {
+                const text = await this.parseRegionFromBuffer(screenshotBuffer, this.getScaledRegion(BASE_REGIONS.shopSlots[i]), screenCapture);
                 if (text) {
                     gameState.shop.units.push({ name: text, cost: null });
                 } else {
@@ -161,8 +203,8 @@ export class GameStateParser {
             }
 
             // Parse bench units from buffer
-            for (let i = 0; i < REGIONS.benchSlots.length; i++) {
-                const text = await this.parseRegionFromBuffer(screenshotBuffer, REGIONS.benchSlots[i], screenCapture);
+            for (let i = 0; i < BASE_REGIONS.benchSlots.length; i++) {
+                const text = await this.parseRegionFromBuffer(screenshotBuffer, this.getScaledRegion(BASE_REGIONS.benchSlots[i]), screenCapture);
                 if (text) {
                     gameState.bench.push({ name: text, cost: null });
                 } else {
@@ -197,7 +239,7 @@ export class GameStateParser {
 
     private async parseStage(screenCapture: ScreenCapture): Promise<string | null> {
         try {
-            const png = await screenCapture.captureGameRegionAsPng(REGIONS.stage, true);
+            const png = await screenCapture.captureGameRegionAsPng(this.getScaledRegion(BASE_REGIONS.stage), true);
             const result = await this.ocrWorker!.recognize(png);
             const text = result.data.text.trim();
 
@@ -211,7 +253,7 @@ export class GameStateParser {
 
     private async parseGold(screenCapture: ScreenCapture): Promise<number | null> {
         try {
-            const png = await screenCapture.captureGameRegionAsPng(REGIONS.gold, true);
+            const png = await screenCapture.captureGameRegionAsPng(this.getScaledRegion(BASE_REGIONS.gold), true);
             const result = await this.ocrWorker!.recognize(png);
             const text = result.data.text.trim();
 
@@ -224,7 +266,7 @@ export class GameStateParser {
 
     private async parseLevel(screenCapture: ScreenCapture): Promise<{ level: number | null; xp: string | null }> {
         try {
-            const png = await screenCapture.captureGameRegionAsPng(REGIONS.level, true);
+            const png = await screenCapture.captureGameRegionAsPng(this.getScaledRegion(BASE_REGIONS.level), true);
             const result = await this.ocrWorker!.recognize(png);
             const text = result.data.text.trim();
 
@@ -244,9 +286,9 @@ export class GameStateParser {
     private async parseShop(screenCapture: ScreenCapture): Promise<(RecognizedUnit | null)[]> {
         const units: (RecognizedUnit | null)[] = [];
 
-        for (let i = 0; i < REGIONS.shopSlots.length; i++) {
+        for (let i = 0; i < BASE_REGIONS.shopSlots.length; i++) {
             try {
-                const png = await screenCapture.captureGameRegionAsPng(REGIONS.shopSlots[i], true);
+                const png = await screenCapture.captureGameRegionAsPng(this.getScaledRegion(BASE_REGIONS.shopSlots[i]), true);
                 const result = await this.ocrWorker!.recognize(png);
                 const text = result.data.text.trim();
 
@@ -269,9 +311,9 @@ export class GameStateParser {
     private async parseBench(screenCapture: ScreenCapture): Promise<(RecognizedUnit | null)[]> {
         const units: (RecognizedUnit | null)[] = [];
 
-        for (let i = 0; i < REGIONS.benchSlots.length; i++) {
+        for (let i = 0; i < BASE_REGIONS.benchSlots.length; i++) {
             try {
-                const png = await screenCapture.captureGameRegionAsPng(REGIONS.benchSlots[i], true);
+                const png = await screenCapture.captureGameRegionAsPng(this.getScaledRegion(BASE_REGIONS.benchSlots[i]), true);
                 const result = await this.ocrWorker!.recognize(png);
                 const text = result.data.text.trim();
 
